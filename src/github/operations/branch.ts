@@ -45,9 +45,38 @@ export async function setupBranch(
 
       const branchName = prData.headRefName;
 
-      // Execute git commands to checkout PR branch (shallow fetch for performance)
-      // Fetch the branch with a depth of 20 to avoid fetching too much history, while still allowing for some context
-      await $`git fetch origin --depth=20 ${branchName}`;
+      // Determine optimal fetch depth based on PR commit count
+      let fetchDepth = 20; // Default fallback depth
+
+      try {
+        const compareResponse = await octokits.rest.repos.compareCommits({
+          owner,
+          repo,
+          base: prData.baseRefName,
+          head: prData.headRefName,
+        });
+
+        const commitCount = compareResponse.data.ahead_by;
+
+        if (typeof commitCount === "number" && commitCount >= 0) {
+          // Use PR commit count with minimum of default fetch depth for context
+          fetchDepth = Math.max(commitCount, fetchDepth);
+          console.log(
+            `PR has ${commitCount} commits ahead of base, fetching with depth ${fetchDepth}`,
+          );
+        } else {
+          console.log(
+            `Invalid commit count (${commitCount}), using default depth ${fetchDepth}`,
+          );
+        }
+      } catch (error) {
+        console.log(
+          `Failed to get PR commit count (${error}), using default depth ${fetchDepth}`,
+        );
+      }
+
+      // Execute git commands to checkout PR branch (dynamic depth based on PR size)
+      await $`git fetch origin --depth=${fetchDepth} ${branchName}`;
       await $`git checkout ${branchName}`;
 
       console.log(`Successfully checked out PR branch for PR #${entityNumber}`);
